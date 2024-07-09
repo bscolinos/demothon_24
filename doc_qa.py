@@ -16,9 +16,9 @@ logger = getLogger(__name__)
 
 USERNAME = "admin"
 PASSWORD = "SingleStore3!"
-HOST = "svc-216a63c3-a592-4e41-b082-b666a1e894ca-dml.aws-virginia-5.svc.singlestore.com"
+HOST = "svc-59539893-4fcc-43ed-a05d-7582477f9579-dml.aws-virginia-5.svc.singlestore.com"
 PORT = 3306
-DATABASE = "demothon"
+DATABASE = "demo_db"
 
 db_url = f"mysql+pymysql://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}?charset=utf8mb4"
 

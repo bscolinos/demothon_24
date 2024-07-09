@@ -18,9 +18,9 @@ st.set_page_config(page_title="Patient 360 Portal", layout="wide")
 config = {
     'user': 'admin',
     'password': 'SingleStore3!',
-    'host': 'svc-216a63c3-a592-4e41-b082-b666a1e894ca-dml.aws-virginia-5.svc.singlestore.com',
+    'host': 'svc-59539893-4fcc-43ed-a05d-7582477f9579-dml.aws-virginia-5.svc.singlestore.com',
     'port': 3306,
-    'database': 'demothon'
+    'database': 'demo_db'
 }
 
 def get_db_connection():
