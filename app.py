@@ -10,6 +10,8 @@ import json
 from langchain_community.embeddings import OpenAIEmbeddings
 from openai import OpenAI
 import os
+from analytics import execute_query, get_unique_doctors, get_unique_conditions
+import pymysql
 
 # Page configuration
 st.set_page_config(page_title="Patient 360 Portal", layout="wide")
@@ -50,7 +52,7 @@ def load_data():
 
 # Sidebar for navigation
 st.sidebar.title("Navigation")
-section = st.sidebar.radio("Go to", ["Patient Records", "Analytics", "Search"])
+section = st.sidebar.radio("Go to", ["Patient Records", "Analytics", "Research"])
 
 emb_model = OpenAIEmbeddings()
 
@@ -93,7 +95,8 @@ def hybrid_search(query, limit: int = 5): # TODO integrate BM25 or other 8.7 rel
     return results_as_dict
 
 # Function to display patient records
-def display_patient_records():
+def display_patient_records(): # TODO tie in how latest research relates to each patient, think about how 
+    # we simulate a lot of questions, 5 most similar patients to this one
     st.title("Patient Records Management")
     st.subheader("Patient Profiles")
     # st.dataframe(patients)
@@ -107,9 +110,65 @@ def display_patient_records():
     st.subheader("Billing and Insurance")
     # st.dataframe(billing)
 
+
 # Function to display analytics
 def display_analytics():
     st.title("Analytics and Reporting")
+
+    # Create a dropdown for selecting the analysis type
+    analysis_type = st.selectbox(
+        "Select Analysis Type",
+        ["Patient Demographics", "Medication Usage", "Appointment Trends", "Billing Claims", "Allergies Report"]
+    )
+
+    if analysis_type == "Patient Demographics":
+        result = subprocess.run(["python", "analytics.py", "demographics"], capture_output=True, text=True)
+        data = json.loads(result.stdout)
+        df = pd.DataFrame(data)
+        st.write("Patient Demographics")
+        st.dataframe(df)
+
+    elif analysis_type == "Medication Usage":
+        result = subprocess.run(["python", "analytics.py", "medication"], capture_output=True, text=True)
+        data = json.loads(result.stdout)
+        df = pd.DataFrame(data)
+        st.write("Medication Usage")
+        st.dataframe(df)
+
+    elif analysis_type == "Appointment Trends":
+        start_date = st.date_input("Start Date")
+        end_date = st.date_input("End Date")
+        condition = st.selectbox("Select Condition", [""] + get_unique_conditions())
+        doctor_id = st.selectbox("Select Doctor ID", [""] + get_unique_doctors())
+        
+        if st.button("Generate Appointment Trends"):
+            result = subprocess.run([
+                "python", "analytics.py", "appointments",
+                str(start_date), str(end_date),
+                condition if condition else "None",
+                str(doctor_id) if doctor_id else "None"
+            ], capture_output=True, text=True)
+            data = json.loads(result.stdout)
+            df = pd.DataFrame(data)
+            st.write("Appointment Trends")
+            st.dataframe(df)
+
+    elif analysis_type == "Billing Claims":
+        result = subprocess.run(["python", "analytics.py", "billing"], capture_output=True, text=True)
+        data = json.loads(result.stdout)
+        df = pd.DataFrame(data)
+        st.write("Billing Claims")
+        st.dataframe(df)
+
+    elif analysis_type == "Allergies Report":
+        result = subprocess.run(["python", "analytics.py", "allergies"], capture_output=True, text=True)
+        data = json.loads(result.stdout)
+        df = pd.DataFrame(data)
+        st.write("Allergies Report")
+        st.dataframe(df)
+
+    
+
 
 # Function to perform hybrid search
 # def display_search():
@@ -137,15 +196,15 @@ def display_analytics():
 #         else:
 #             st.warning("Please enter a question.")
 
-def display_search():
+def display_search(): # TODO add vectorize and upload to get results. Search with different code
     st.title("Hybrid Search on latest scientific research")
     pdf_folder = os.path.join(os.path.dirname(__file__), "arxiv_pdfs")
     
-    arxiv_query = st.text_input("Enter arXiv search query (e.g., 'quantum computing')")
+    arxiv_query = st.text_input("Enter search query (e.g., 'arthritis research')")
     max_results = st.slider("Maximum number of papers to download", 1, 50, 10)
     
-    if st.button("Search arXiv and Download Papers"):
-        with st.spinner("Searching arXiv and downloading papers..."):
+    if st.button("Search and Download Papers"):
+        with st.spinner("Searching and downloading papers..."):
             download_arxiv_papers(arxiv_query, max_results, pdf_folder)
         st.success(f"Downloaded {max_results} papers to {pdf_folder}")
 
@@ -155,25 +214,14 @@ def display_search():
     
     if st.button("Get Answer"):
         if question:
-            try:
-                # Run the PDF assistant script as a subprocess
-                result = subprocess.run(
-                    ["python", "doc_qa.py", question, pdf_folder],
-                    capture_output=True,
-                    text=True,
-                    check=True  # This will raise an exception if the subprocess fails
-                )
-                
-                # Display the response
-                st.write("Assistant's response:")
-                st.write(result.stdout)
-                
-                # Log any errors
-                if result.stderr:
-                    st.error(f"Error occurred: {result.stderr}")
-            except subprocess.CalledProcessError as e:
-                st.error(f"An error occurred while running the assistant: {e}")
-                st.error(f"Error output: {e.stderr}")
+            result = subprocess.run(
+                ["python", "doc_qa.py", question, pdf_folder],
+                capture_output=True,
+                text=True
+            )
+            
+            st.write("Assistant's response:")
+            st.write(result.stdout)
         else:
             st.warning("Please enter a question.")
 
@@ -183,5 +231,5 @@ if section == "Patient Records":
     display_patient_records()
 elif section == "Analytics":
     display_analytics()
-elif section == "Search":
+elif section == "Research":
     display_search()
