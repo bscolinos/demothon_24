@@ -98,17 +98,30 @@ def hybrid_search(query, limit: int = 5): # TODO integrate BM25 or other 8.7 rel
 def display_patient_records(): # TODO tie in how latest research relates to each patient, think about how 
     # we simulate a lot of questions, 5 most similar patients to this one
     st.title("Patient Records Management")
-    st.subheader("Patient Profiles")
-    # st.dataframe(patients)
-    
-    st.subheader("Appointments")
-    # st.dataframe(appointments)
-    
-    st.subheader("Visits and Encounters")
-    # st.dataframe(visits)
-    
-    st.subheader("Billing and Insurance")
-    # st.dataframe(billing)
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT patient_id FROM patients ORDER BY patient_id ASC LIMIT 10;")
+                ids = [row[0] for row in cursor.fetchall()]
+
+        selected_id = st.selectbox("Select an ID", ids)
+
+        if selected_id:
+            with get_db_connection() as conn:
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute("""
+                        SELECT * FROM appointments
+                        WHERE patient_id = %s
+                    """, (selected_id,))
+                    appointments = cursor.fetchall()
+
+            if appointments:
+                st.write(appointments)
+            else:
+                st.write("No appointments found for this ID.")
+
+    except mysql.connector.Error as err:
+        st.error(f"Database error: {err}")
 
 
 # Function to display analytics
