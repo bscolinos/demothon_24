@@ -1,61 +1,82 @@
-import arxiv
 import os
-import requests
-import argparse
 import sys
+import arxiv
+import requests
+from typing import Optional, List
+from phi.assistant import Assistant
+from phi.knowledge import AssistantKnowledge
+from phi.storage.assistant.singlestore import S2AssistantStorage
+from phi.vectordb.singlestore import S2VectorDb
+from phi.document import Document
+from phi.document.reader.pdf import PDFReader
+import logging
+
+# Set up logging
+logging.getLogger("phi").setLevel(logging.CRITICAL)
+
+# Environment variables and database connection details
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY environment variable is not set")
+
+USERNAME = "admin"
+PASSWORD = "SingleStore3!"
+HOST = "svc-59539893-4fcc-43ed-a05d-7582477f9579-dml.aws-virginia-5.svc.singlestore.com"
+PORT = 3306
+DATABASE = "demo_db"
+
+db_url = f"mysql+pymysql://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}?charset=utf8mb4"
+
+# Set up SingleStore storage and knowledge base
+assistant_storage = S2AssistantStorage(table_name="pdf_assistant", schema=DATABASE, db_url=db_url)
+assistant_knowledge = AssistantKnowledge(
+    vector_db=S2VectorDb(collection="pdf_documents", schema=DATABASE, db_url=db_url),
+    num_documents=5,
+)
 
 def sanitize_filename(filename):
     return "".join([c for c in filename if c.isalpha() or c.isdigit() or c==' ']).rstrip()
 
 def download_arxiv_papers(query, max_results, output_dir):
-    # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-
-    # Create an API client
     client = arxiv.Client()
-
-    # Define the search query
     search = arxiv.Search(
         query=query,
         max_results=max_results,
         sort_by=arxiv.SortCriterion.SubmittedDate,
         sort_order=arxiv.SortOrder.Descending
     )
-
-    # Fetch the results
     results = client.results(search)
 
-    # Download PDFs and print information for each result
     for paper in results:
-        print(f"Title: {paper.title}")
-        print(f"Authors: {', '.join(author.name for author in paper.authors)}")
-        print(f"Published: {paper.published}")
-        print(f"arXiv ID: {paper.entry_id}")
-        
-        # Download PDF
+        print(f"Processing: {paper.title}")
         pdf_url = paper.pdf_url
         response = requests.get(pdf_url)
         if response.status_code == 200:
-            # Create a filename from the paper title
-            filename = sanitize_filename(paper.title)[:50]  # Limit filename length
+            filename = sanitize_filename(paper.title)[:50]
             filepath = os.path.join(output_dir, f"{filename}.pdf")
-            
             with open(filepath, 'wb') as f:
                 f.write(response.content)
-            print(f"PDF downloaded: {filepath}")
+            print(f"Downloaded: {filepath}")
+            
+            # Upload to SingleStore
+            try:
+                pdf_documents: List[Document] = PDFReader().read(filepath)
+                if pdf_documents:
+                    assistant_knowledge.load_documents(pdf_documents, upsert=True)
+                    print(f"Uploaded to SingleStore: {filename}")
+            except Exception as e:
+                print(f"Error uploading {filename}: {str(e)}")
         else:
             print(f"Failed to download PDF. Status code: {response.status_code}")
-        
-        print("\n---\n")
-
-    print(f"PDFs have been downloaded to the '{output_dir}' directory.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download recent arXiv papers as PDFs.")
-    parser.add_argument("query", help="Search query (e.g., 'cat:stat.ML OR cat:cs.LG' for machine learning)")
-    parser.add_argument("--max_results", type=int, default=10, help="Maximum number of results to return")
-    parser.add_argument("--output_dir", default="arxiv_pdfs", help="Directory to save the PDFs")
+    if len(sys.argv) != 4:
+        print("Usage: python process_papers.py <query> <max_results> <output_dir>")
+        sys.exit(1)
     
-    args = parser.parse_args()
-
-    download_arxiv_papers(args.query, args.max_results, args.output_dir)
+    query = sys.argv[1]
+    max_results = int(sys.argv[2])
+    output_dir = sys.argv[3]
+    
+    download_arxiv_papers(query, max_results, output_dir)

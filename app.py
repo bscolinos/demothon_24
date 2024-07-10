@@ -12,6 +12,7 @@ from openai import OpenAI
 import os
 from analytics import execute_query, get_unique_doctors, get_unique_conditions
 import pymysql
+import sys
 
 # Page configuration
 st.set_page_config(page_title="Patient 360 Portal", layout="wide")
@@ -105,14 +106,18 @@ def display_patient_records(): # TODO tie in how latest research relates to each
                 ids = [row[0] for row in cursor.fetchall()]
 
         selected_id = st.selectbox("Select an ID", ids)
+        note = st.text_input("Optionally, enter notes you wish to search on")
+        notes_query = f'notes:{note}'
 
         if selected_id:
             with get_db_connection() as conn:
                 with conn.cursor(dictionary=True) as cursor:
                     cursor.execute("""
                         SELECT * FROM appointments
-                        WHERE patient_id = %s
-                    """, (selected_id,))
+                                   WHERE patient_id = %s
+                                   AND MATCH (TABLE appointments) AGAINST (%s)
+                                   LIMIT 50;
+                        """, (selected_id,notes_query))
                     appointments = cursor.fetchall()
 
             if appointments:
@@ -180,63 +185,100 @@ def display_analytics():
         st.write("Allergies Report")
         st.dataframe(df)
 
-    
-
-
-# Function to perform hybrid search
-# def display_search():
+# def display_search(): # TODO add vectorize and upload to get results. Search with different code
 #     st.title("Hybrid Search on latest scientific research")
 #     pdf_folder = os.path.join(os.path.dirname(__file__), "arxiv_pdfs")
     
-#     question = st.text_input("Enter search query")
+#     arxiv_query = st.text_input("Enter search query (e.g., 'arthritis research')")
+#     max_results = st.slider("Maximum number of papers to download", 1, 50, 10)
     
-#     # TODO uncomment and make all this work together
-#     # if question: 
-#     #     # Full-text search
-#     #     hybrid_search()
+#     if st.button("Search and Download Papers"):
+#         with st.spinner("Searching and downloading papers..."):
+#             download_arxiv_papers(arxiv_query, max_results, pdf_folder)
+#         st.success(f"Downloaded {max_results} papers to {pdf_folder}")
+
+#     st.markdown("---")
+    
+#     question = st.text_input("Enter a question about the downloaded papers")
+    
 #     if st.button("Get Answer"):
 #         if question:
-#             # Run the PDF assistant script as a subprocess
 #             result = subprocess.run(
 #                 ["python", "doc_qa.py", question, pdf_folder],
 #                 capture_output=True,
 #                 text=True
 #             )
             
-#             # Display the response
 #             st.write("Assistant's response:")
 #             st.write(result.stdout)
 #         else:
 #             st.warning("Please enter a question.")
 
-def display_search(): # TODO add vectorize and upload to get results. Search with different code
-    st.title("Hybrid Search on latest scientific research")
+def display_search():
+    st.title("Hybrid Search on Latest Scientific Research")
     pdf_folder = os.path.join(os.path.dirname(__file__), "arxiv_pdfs")
     
     arxiv_query = st.text_input("Enter search query (e.g., 'arthritis research')")
     max_results = st.slider("Maximum number of papers to download", 1, 50, 10)
     
-    if st.button("Search and Download Papers"):
-        with st.spinner("Searching and downloading papers..."):
-            download_arxiv_papers(arxiv_query, max_results, pdf_folder)
-        st.success(f"Downloaded {max_results} papers to {pdf_folder}")
-
-    st.markdown("---")
-    
-    question = st.text_input("Enter a question about the downloaded papers")
-    
-    if st.button("Get Answer"):
-        if question:
-            result = subprocess.run(
-                ["python", "doc_qa.py", question, pdf_folder],
-                capture_output=True,
-                text=True
+    if st.button("Search, Download, and Process Papers"):
+        with st.spinner("Searching, downloading, and processing papers..."):
+            # Run the subprocess
+            process = subprocess.Popen(
+                [sys.executable, "search_papers.py", arxiv_query, str(max_results), pdf_folder],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
             )
             
-            st.write("Assistant's response:")
-            st.write(result.stdout)
+            # Stream the output
+            for line in process.stdout:
+                st.text(line.strip())
+            
+            # Wait for the process to complete
+            process.wait()
+            
+            # Check for errors
+            error_output = process.stderr.read()
+            if error_output:
+                st.error("An error occurred during processing:")
+                st.code(error_output)
+            
+            if process.returncode == 0:
+                st.success(f"Downloaded and processed {max_results} papers to {pdf_folder}")
+            else:
+                st.error(f"Process exited with return code {process.returncode}")
+
+
+    st.markdown("---")
+
+    question = st.text_input("Enter a question about the downloaded papers")
+
+    if st.button("Get Answer"):
+        if question:
+            try:
+                result = subprocess.run(
+                    [sys.executable, "doc_qa.py", question],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                
+                st.write("Assistant's response:")
+                st.write(result.stdout)
+                
+                if result.stderr:
+                    st.error(f"Error occurred: {result.stderr}")
+            except subprocess.CalledProcessError as e:
+                st.error(f"An error occurred while running the script: {e}")
+                if e.stderr:
+                    st.error(f"Error details: {e.stderr}")
         else:
             st.warning("Please enter a question.")
+
+
 
 
 # Navigation logic

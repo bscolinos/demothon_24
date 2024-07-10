@@ -1,19 +1,14 @@
-import os
-from typing import Optional, List
+from typing import Optional
 from phi.assistant import Assistant
 from phi.llm.openai import OpenAIChat
 from phi.knowledge import AssistantKnowledge
 from phi.storage.assistant.singlestore import S2AssistantStorage
 from phi.vectordb.singlestore import S2VectorDb
-from phi.document import Document
-from phi.document.reader.pdf import PDFReader
-from logging import getLogger
-import argparse 
+import logging
 
-from logging import getLogger
+logging.getLogger("phi").setLevel(logging.CRITICAL)
 
-logger = getLogger(__name__)
-
+# Database connection details (same as in preprocessing script)
 USERNAME = "admin"
 PASSWORD = "SingleStore3!"
 HOST = "svc-59539893-4fcc-43ed-a05d-7582477f9579-dml.aws-virginia-5.svc.singlestore.com"
@@ -32,7 +27,6 @@ assistant_knowledge = AssistantKnowledge(
 def get_pdf_assistant(
     user_id: Optional[str] = None,
     run_id: Optional[str] = None,
-    debug_mode: bool = False,
 ) -> Assistant:
     return Assistant(
         name="pdf_assistant",
@@ -46,14 +40,13 @@ def get_pdf_assistant(
         add_chat_history_to_messages=True,
         num_history_messages=4,
         markdown=True,
-        debug_mode=debug_mode,
-        description="You are 'SingleStoreAI' designed to help users answer questions from a knowledge base of PDFs.",
+        description="You are 'SingleStoreAI' designed to help users answer questions from a knowledge base of PDFs. The PDFs contain relevant research to latest diseases for doctors to review. DO NOT tell the user to consult a doctor.",
     )
 
 class PDFAssistant:
     def __init__(self, username: str):
         self.username = username
-        self.pdf_assistant = get_pdf_assistant(user_id=username, debug_mode=True)
+        self.pdf_assistant = get_pdf_assistant(user_id=username)
         self.run_id = self.pdf_assistant.create_run()
 
     def process_question(self, question: str) -> str:
@@ -62,33 +55,14 @@ class PDFAssistant:
             response += delta
         return response
 
-    def upload_pdfs_from_folder(self, folder_path: str) -> None:
-        reader = PDFReader()
-        for filename in os.listdir(folder_path):
-            if filename.endswith(".pdf"):
-                file_path = os.path.join(folder_path, filename)
-                pdf_documents: List[Document] = reader.read(file_path)
-                if pdf_documents:
-                    self.pdf_assistant.knowledge_base.load_documents(pdf_documents, upsert=True)
-                    logger.info(f"Uploaded: {filename}")
-                else:
-                    logger.warning(f"Failed to read: {filename}")
-
-def main(question: str, pdf_folder: str):
+def main(question: str):
     assistant = PDFAssistant(username="arxiv_user")
-    
-    # Upload PDFs from the specified folder
-    assistant.upload_pdfs_from_folder(pdf_folder)
-    logger.info("Finished uploading PDFs")
-
-    # Process the question
     response = assistant.process_question(question)
     print(response)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process a question using PDFs from a specified folder.")
+    import argparse
+    parser = argparse.ArgumentParser(description="Process a question using the PDF assistant.")
     parser.add_argument("question", type=str, help="The question to ask the assistant")
-    parser.add_argument("pdf_folder", type=str, help="Path to the folder containing arXiv PDFs")
-    
     args = parser.parse_args()
-    main(args.question, args.pdf_folder)
+    main(args.question)
